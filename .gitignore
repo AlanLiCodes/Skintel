@@ -33,3 +33,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local database (generate with: python3 scripts/build_skincare_db.py)
+/data/*.db

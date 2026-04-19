@@ -1,6 +1,132 @@
-import type { SkinProfile, SkinAnalysis, RecommendedIngredient, RecommendedProduct } from "./types";
-import { INGREDIENTS, PRODUCTS, MOCK_FOOD_RECOMMENDATIONS } from "./data";
+import type {
+  SkinConcern,
+  SkinProfile,
+  SkinAnalysis,
+  RecommendedIngredient,
+  RecommendedProduct,
+} from "./types";
+import { INGREDIENTS, PRODUCTS } from "./data";
 import { generateId } from "./utils";
+
+/** Profile concerns plus related tags so melasma / scarring / dark circles still match library ingredients. */
+function expandedConcernSet(concerns: SkinConcern[]): Set<SkinConcern> {
+  const set = new Set<SkinConcern>();
+  for (const c of concerns) {
+    set.add(c);
+    switch (c) {
+      case "melasma":
+        set.add("hyperpigmentation");
+        set.add("uneven-tone");
+        break;
+      case "dark-circles":
+        set.add("fine-lines");
+        set.add("uneven-tone");
+        break;
+      case "scarring":
+        set.add("texture");
+        set.add("hyperpigmentation");
+        set.add("acne");
+        break;
+      default:
+        break;
+    }
+  }
+  return set;
+}
+
+function buildIngredientRec(
+  ingredient: (typeof INGREDIENTS)[number],
+  overlap: SkinConcern[],
+  priority: RecommendedIngredient["priority"],
+  reason: string
+): RecommendedIngredient {
+  return {
+    ingredient,
+    reason,
+    priority,
+    step: "serum",
+    concentrationNote: `Effective at ${ingredient.concentrationRange.optimal}${ingredient.concentrationRange.unit}. Start at the lower end (${ingredient.concentrationRange.min}${ingredient.concentrationRange.unit}) if new to the ingredient.`,
+  };
+}
+
+function matchRecommendedIngredients(profile: SkinProfile): RecommendedIngredient[] {
+  const expanded = expandedConcernSet(profile.concerns);
+  const out: RecommendedIngredient[] = [];
+  const seen = new Set<string>();
+
+  const overlapOf = (ing: (typeof INGREDIENTS)[number]) =>
+    ing.concerns.filter((c) => expanded.has(c));
+
+  // 1) Concern match + skin type (strict)
+  for (const ingredient of INGREDIENTS) {
+    const overlap = overlapOf(ingredient);
+    if (overlap.length === 0 || !ingredient.skinTypes.includes(profile.skinType)) continue;
+    seen.add(ingredient.id);
+    out.push(
+      buildIngredientRec(
+        ingredient,
+        overlap,
+        overlap.length >= 2 ? "essential" : "recommended",
+        `Addresses ${overlap.map((c) => c.replace(/-/g, " ")).join(", ")} — aligned with your concerns and ${profile.skinType} skin.`
+      )
+    );
+  }
+
+  // 2) Concern match, any skin type (still personalized by concern)
+  for (const ingredient of INGREDIENTS) {
+    if (seen.has(ingredient.id)) continue;
+    const overlap = overlapOf(ingredient);
+    if (overlap.length === 0) continue;
+    seen.add(ingredient.id);
+    out.push(
+      buildIngredientRec(
+        ingredient,
+        overlap,
+        overlap.length >= 2 ? "recommended" : "optional",
+        `Addresses ${overlap.map((c) => c.replace(/-/g, " ")).join(", ")} — check suitability for ${profile.skinType} skin and patch test if unsure.`
+      )
+    );
+  }
+
+  // 3) Skin-type fit when concern data is still thin
+  for (const ingredient of INGREDIENTS) {
+    if (seen.has(ingredient.id)) continue;
+    if (!ingredient.skinTypes.includes(profile.skinType)) continue;
+    seen.add(ingredient.id);
+    out.push(
+      buildIngredientRec(
+        ingredient,
+        [],
+        "optional",
+        `Commonly used for ${profile.skinType} skin — pair with your goals and introduce actives gradually.`
+      )
+    );
+  }
+
+  out.sort((a, b) => {
+    const p = { essential: 0, recommended: 1, optional: 2 };
+    return p[a.priority] - p[b.priority];
+  });
+
+  if (out.length >= 6) return out.slice(0, 6);
+
+  // 4) Fill up to 6 from the rest of the library if still short
+  for (const ingredient of INGREDIENTS) {
+    if (out.length >= 6) break;
+    if (seen.has(ingredient.id)) continue;
+    seen.add(ingredient.id);
+    out.push(
+      buildIngredientRec(
+        ingredient,
+        [],
+        "optional",
+        "Foundational ingredient to review with your routine and a professional if you have medical skin conditions."
+      )
+    );
+  }
+
+  return out.slice(0, 6);
+}
 
 // Analyze a skin profile and generate recommendations
 // In production this would call the OpenAI API; here we run client-side logic
@@ -8,22 +134,8 @@ export async function analyzeSkinProfile(profile: SkinProfile): Promise<SkinAnal
   // Simulate async API delay
   await new Promise((r) => setTimeout(r, 1500));
 
-  const matchedIngredients: RecommendedIngredient[] = [];
+  const matchedIngredients = matchRecommendedIngredients(profile);
   const matchedProducts: RecommendedProduct[] = [];
-
-  // Match ingredients to concerns
-  for (const ingredient of INGREDIENTS) {
-    const overlap = ingredient.concerns.filter((c) => profile.concerns.includes(c as SkinProfile["concerns"][number]));
-    if (overlap.length > 0 && ingredient.skinTypes.includes(profile.skinType)) {
-      matchedIngredients.push({
-        ingredient,
-        reason: `Addresses ${overlap.map((c) => c.replace(/-/g, " ")).join(", ")} which are in your top concerns.`,
-        priority: overlap.length >= 2 ? "essential" : overlap.length === 1 ? "recommended" : "optional",
-        step: "serum",
-        concentrationNote: `Effective at ${ingredient.concentrationRange.optimal}${ingredient.concentrationRange.unit}. Start at the lower end (${ingredient.concentrationRange.min}${ingredient.concentrationRange.unit}) if new to the ingredient.`,
-      });
-    }
-  }
 
   // Match products to concerns & skin type
   for (const product of PRODUCTS) {
@@ -37,14 +149,11 @@ export async function analyzeSkinProfile(profile: SkinProfile): Promise<SkinAnal
         matchScore: score,
         reason: `${typeMatch ? "Formulated for your skin type" : "Generally suitable"}.${concernOverlap.length ? ` Targets ${concernOverlap.map((c) => c.replace(/-/g, " ")).join(", ")}.` : ""}`,
         step: product.category,
+        pros: buildProductPros(product, profile),
+        cons: buildProductCons(product, profile),
       });
     }
   }
-
-  matchedIngredients.sort((a, b) => {
-    const p = { essential: 0, recommended: 1, optional: 2 };
-    return p[a.priority] - p[b.priority];
-  });
 
   matchedProducts.sort((a, b) => b.matchScore - a.matchScore);
 
@@ -59,7 +168,7 @@ export async function analyzeSkinProfile(profile: SkinProfile): Promise<SkinAnal
       explanation: getConcernExplanation(c),
       priority: i + 1,
     })),
-    recommendedIngredients: matchedIngredients.slice(0, 6),
+    recommendedIngredients: matchedIngredients,
     recommendedProducts: matchedProducts.slice(0, 6),
     routineSuggestion: {
       am: [
@@ -80,8 +189,99 @@ export async function analyzeSkinProfile(profile: SkinProfile): Promise<SkinAnal
         { order: 2, category: "mask", instruction: "Use a targeted mask based on current concerns." },
       ],
     },
-    foodRecommendations: MOCK_FOOD_RECOMMENDATIONS,
+    foodRecommendations: { beneficial: [], avoid: [], supplements: [] },
   };
+}
+
+function buildProductPros(product: typeof PRODUCTS[number], profile: SkinProfile): string[] {
+  const pros: string[] = [];
+
+  // Skin type match
+  if (product.skinTypes.includes(profile.skinType)) {
+    pros.push(`Formulated for ${profile.skinType} skin`);
+  }
+
+  // Concern overlap
+  const concernOverlap = product.concerns.filter((c) =>
+    profile.concerns.includes(c as SkinProfile["concerns"][number])
+  );
+  if (concernOverlap.length > 0) {
+    pros.push(`Directly targets your concern${concernOverlap.length > 1 ? "s" : ""}: ${concernOverlap.map((c) => c.replace(/-/g, " ")).join(", ")}`);
+  }
+
+  // High rating
+  if (product.rating >= 4.7) {
+    pros.push(`Highly rated (${product.rating}/5 from ${product.reviewCount.toLocaleString()} reviews)`);
+  }
+
+  // Allergy-safe tags
+  if (product.tags.includes("fragrance-free") && profile.allergies.some((a) => /fragrance/i.test(a))) {
+    pros.push("Fragrance-free — safe for your listed sensitivity");
+  }
+
+  // Affordable
+  if (product.price < 20) {
+    pros.push("Budget-friendly — accessible price point");
+  }
+
+  // Derm recommended
+  if (product.tags.includes("derm-recommended")) {
+    pros.push("Dermatologist-recommended formula");
+  }
+
+  // Multiple concerns addressed
+  if (concernOverlap.length >= 2) {
+    pros.push("Addresses multiple concerns in a single product");
+  }
+
+  return pros.slice(0, 4);
+}
+
+function buildProductCons(product: typeof PRODUCTS[number], profile: SkinProfile): string[] {
+  const cons: string[] = [];
+
+  // Not ideal skin type
+  if (!product.skinTypes.includes(profile.skinType)) {
+    cons.push(`Not specifically formulated for ${profile.skinType} skin`);
+  }
+
+  // Allergy risk
+  const allergyFlags = profile.allergies.filter((allergy) =>
+    product.allIngredients.some((ing) => ing.toLowerCase().includes(allergy.toLowerCase()))
+  );
+  if (allergyFlags.length > 0) {
+    cons.push(`Contains ingredients that may conflict with your sensitivity: ${allergyFlags.join(", ")}`);
+  }
+
+  // Price
+  if (product.price > 100) {
+    cons.push("Premium price point — may not suit all budgets");
+  } else if (product.price > 50) {
+    cons.push("Mid-to-high price — worth patch testing before committing");
+  }
+
+  // Age-related caution
+  if (profile.ageRange === "under-18" && product.keyIngredients.includes("retinol")) {
+    cons.push("Retinol is not recommended for under 18 — consult a dermatologist first");
+  }
+
+  // Sensitive skin + strong actives
+  if (profile.skinType === "sensitive" && product.keyIngredients.some((i) => ["aha-bha", "retinol", "vitamin-c"].includes(i))) {
+    cons.push("Contains active ingredients — introduce slowly and patch test first");
+  }
+
+  // Unaddressed primary concern
+  const topConcern = profile.concerns[0];
+  if (topConcern && !product.concerns.includes(topConcern as typeof product.concerns[number])) {
+    cons.push(`Doesn't directly target your top concern: ${topConcern.replace(/-/g, " ")}`);
+  }
+
+  // Low review count
+  if (product.reviewCount < 5000) {
+    cons.push("Limited reviews — less community data available");
+  }
+
+  return cons.slice(0, 3);
 }
 
 function buildSummary(profile: SkinProfile): string {

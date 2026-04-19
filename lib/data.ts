@@ -108,7 +108,7 @@ export const INGREDIENTS: Ingredient[] = [
       "Antioxidant protection",
       "Evens skin tone",
     ],
-    concerns: ["hyperpigmentation", "anti-aging", "uneven-tone", "dullness" as SkinConcern],
+    concerns: ["hyperpigmentation", "anti-aging", "uneven-tone"],
     skinTypes: ["normal", "combination", "oily"],
     concentrationRange: {
       min: 5.0,
@@ -172,7 +172,7 @@ export const INGREDIENTS: Ingredient[] = [
       "Smooths skin texture",
       "Protects against irritants",
     ],
-    concerns: ["dryness", "redness", "eczema", "sensitive" as SkinConcern],
+    concerns: ["dryness", "redness", "eczema"],
     skinTypes: ["dry", "sensitive", "normal", "combination"],
     concentrationRange: {
       min: 0.5,

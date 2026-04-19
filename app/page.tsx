@@ -52,27 +52,27 @@ export default function HomePage() {
       {/* Hero */}
       <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-16 pb-20">
         <div className="max-w-2xl">
-          <div className="inline-flex items-center gap-1.5 bg-stone-100 text-stone-600 text-xs font-medium px-3 py-1 rounded-full mb-6">
+          <div className="inline-flex items-center gap-1.5 bg-brand-100 text-brand-600 text-xs font-medium px-3 py-1 rounded-full mb-6">
             <Sparkles size={11} />
             AI-Powered Skincare Intelligence
           </div>
-          <h1 className="text-5xl sm:text-6xl font-semibold text-stone-900 leading-[1.1] tracking-tight mb-6">
+          <h1 className="text-5xl sm:text-6xl font-bold text-brand-900 leading-[1.1] tracking-tight mb-6">
             Know exactly what your skin needs.
           </h1>
-          <p className="text-lg text-stone-500 leading-relaxed mb-8 max-w-xl">
+          <p className="text-lg text-brand-600 leading-relaxed mb-8 max-w-xl">
             Skintel analyzes your skin profile to recommend the right ingredients, products, and habits — no guesswork, just science.
           </p>
           <div className="flex items-center gap-3">
             <Link
               href="/profile/new"
-              className="inline-flex items-center gap-2 bg-stone-900 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-stone-800 transition-colors"
+              className="inline-flex items-center gap-2 bg-brand-500 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors"
             >
               Start your skin profile
               <ArrowRight size={15} />
             </Link>
             <Link
               href="/ingredients"
-              className="inline-flex items-center gap-2 text-stone-600 px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-stone-100 transition-colors"
+              className="inline-flex items-center gap-2 text-brand-600 px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-100 transition-colors"
             >
               Browse ingredients
             </Link>
@@ -87,24 +87,24 @@ export default function HomePage() {
             { value: "15+", label: "Skin concerns covered" },
           ].map((stat) => (
             <div key={stat.label}>
-              <div className="text-2xl font-semibold text-stone-900">{stat.value}</div>
-              <div className="text-sm text-stone-500 mt-0.5">{stat.label}</div>
+              <div className="text-2xl font-bold text-brand-900">{stat.value}</div>
+              <div className="text-sm text-brand-500 mt-0.5">{stat.label}</div>
             </div>
           ))}
         </div>
       </section>
 
       {/* How it works */}
-      <section className="bg-stone-50 border-y border-stone-200 py-16">
+      <section className="bg-brand-100 border-y border-brand-200 py-16">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <h2 className="text-2xl font-semibold text-stone-900 mb-10">How it works</h2>
+          <h2 className="text-brand-900 mb-10">How it works</h2>
           <div className="grid sm:grid-cols-3 gap-6">
             {STEPS.map((step) => (
               <div key={step.number} className="flex gap-4">
-                <span className="text-3xl font-light text-stone-300 tabular-nums leading-none mt-0.5">{step.number}</span>
+                <span className="text-3xl font-light text-brand-300 tabular-nums leading-none mt-0.5">{step.number}</span>
                 <div>
-                  <div className="font-medium text-stone-900 mb-1">{step.title}</div>
-                  <div className="text-sm text-stone-500 leading-relaxed">{step.description}</div>
+                  <div className="font-semibold text-brand-900 mb-1">{step.title}</div>
+                  <div className="text-sm text-brand-600 leading-relaxed">{step.description}</div>
                 </div>
               </div>
             ))}
@@ -114,21 +114,21 @@ export default function HomePage() {
 
       {/* Features */}
       <section className="max-w-6xl mx-auto px-4 sm:px-6 py-16">
-        <h2 className="text-2xl font-semibold text-stone-900 mb-2">Everything your skin routine needs</h2>
-        <p className="text-stone-500 mb-10">From ingredient science to where to buy — all in one place.</p>
+        <h2 className="text-brand-900 mb-2">Everything your skin routine needs</h2>
+        <p className="text-brand-500 mb-10">From ingredient science to where to buy — all in one place.</p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {FEATURES.map((feature) => {
             const Icon = feature.icon;
             return (
               <div
                 key={feature.title}
-                className="p-5 border border-stone-200 rounded-xl bg-white hover:border-stone-300 transition-colors"
+                className="p-5 border border-brand-200 rounded-xl bg-white hover:border-brand-400 transition-colors"
               >
-                <div className="w-9 h-9 bg-stone-100 rounded-lg flex items-center justify-center mb-3">
-                  <Icon size={16} className="text-stone-600" />
+                <div className="w-9 h-9 bg-brand-100 rounded-lg flex items-center justify-center mb-3">
+                  <Icon size={16} className="text-brand-500" />
                 </div>
-                <div className="font-medium text-stone-900 mb-1">{feature.title}</div>
-                <div className="text-sm text-stone-500 leading-relaxed">{feature.description}</div>
+                <div className="font-semibold text-brand-900 mb-1">{feature.title}</div>
+                <div className="text-sm text-brand-600 leading-relaxed">{feature.description}</div>
               </div>
             );
           })}
@@ -137,14 +137,14 @@ export default function HomePage() {
 
       {/* CTA Banner */}
       <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-20">
-        <div className="bg-stone-900 rounded-2xl px-8 py-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+        <div className="bg-brand-700 rounded-2xl px-8 py-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
           <div>
             <div className="text-white font-semibold text-xl mb-1">Ready to decode your skin?</div>
-            <div className="text-stone-400 text-sm">Build your profile in under 3 minutes. Free, no account required.</div>
+            <div className="text-brand-300 text-sm">Build your profile in under 3 minutes. Free, no account required.</div>
           </div>
           <Link
             href="/profile/new"
-            className="shrink-0 inline-flex items-center gap-2 bg-white text-stone-900 px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-stone-50 transition-colors"
+            className="shrink-0 inline-flex items-center gap-2 bg-white text-brand-700 px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-50 transition-colors"
           >
             Build my skin profile
             <ArrowRight size={15} />

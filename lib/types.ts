@@ -175,6 +175,8 @@ export interface RecommendedProduct {
   matchScore: number;
   reason: string;
   step: ProductCategory;
+  pros: string[];
+  cons: string[];
 }
 
 export interface RoutineSuggestion {

@@ -5,14 +5,37 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { analyzeSkinProfile } from "@/lib/ai";
-import { SKIN_CONCERN_LABELS, PRODUCT_CATEGORY_LABELS } from "@/lib/data";
-import { cn, formatCurrency, scoreToLabel, scoreToColor, safetyLabel } from "@/lib/utils";
-import type { SkinAnalysis } from "@/lib/types";
 import {
-  Sparkles, FlaskConical, Package, Leaf, User, ArrowRight,
-  ChevronRight, Check, AlertTriangle, Info, Star, MapPin,
-  Apple, Coffee,
+  SKIN_CONCERN_LABELS,
+  PRODUCT_CATEGORY_LABELS,
+  MOCK_FOOD_RECOMMENDATIONS,
+} from "@/lib/data";
+import { cn, scoreToLabel, scoreToColor, safetyLabel } from "@/lib/utils";
+import type { FoodRecommendations, SkinAnalysis } from "@/lib/types";
+import {
+  Sparkles, FlaskConical, Package, Leaf,
+  ChevronRight, Check, AlertTriangle, Info, MapPin,
+  Apple, Coffee, Loader2,
 } from "lucide-react";
+
+interface DbRec {
+  product: {
+    id: string; name: string; brand: string; category: string;
+    ingredientList: string[];
+  };
+  score: number;
+  reason: string;
+  pros: string[];
+  cons: string[];
+}
+
+interface NearbyStore {
+  placeId: string;
+  name: string;
+  address: string;
+  distanceMiles: number;
+  mapsUrl: string;
+}
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Sparkles },
@@ -32,6 +55,123 @@ export default function AnalyzePage() {
 
   const [activeTab, setActiveTab] = useState("overview");
   const [localAnalysis, setLocalAnalysis] = useState<SkinAnalysis | null>(existingAnalysis);
+  const [dbProducts, setDbProducts]   = useState<DbRec[]>([]);
+  const [dbLoading, setDbLoading]     = useState(false);
+  const [dbError, setDbError]         = useState(false);
+
+  const [storePanelProductId, setStorePanelProductId] = useState<string | null>(null);
+  const [storeZipInput, setStoreZipInput] = useState(() => profile?.location ?? "");
+  const [storeSubmittedZip, setStoreSubmittedZip] = useState("");
+  const [nearbyStores, setNearbyStores] = useState<NearbyStore[] | null>(null);
+  const [storesLoading, setStoresLoading] = useState(false);
+  const [storesError, setStoresError] = useState<string | null>(null);
+
+  const selectedStoreProduct = storePanelProductId
+    ? dbProducts.find((r) => r.product.id === storePanelProductId)?.product
+    : undefined;
+
+  useEffect(() => {
+    if (!selectedStoreProduct || !storeSubmittedZip.trim()) {
+      setNearbyStores(null);
+      setStoresError(null);
+      setStoresLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setStoresLoading(true);
+    setStoresError(null);
+    setNearbyStores(null);
+
+    const params = new URLSearchParams({
+      zip: storeSubmittedZip.trim(),
+      brand: selectedStoreProduct.brand ?? "",
+      product: selectedStoreProduct.name ?? "",
+    });
+    fetch(`/api/stores?${params}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.error) {
+          setStoresError(data.error);
+          setNearbyStores(null);
+        } else {
+          setNearbyStores(data.stores ?? []);
+          setStoresError(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStoresError("Could not load nearby stores");
+          setNearbyStores(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setStoresLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    storeSubmittedZip,
+    selectedStoreProduct?.id,
+    selectedStoreProduct?.brand,
+    selectedStoreProduct?.name,
+  ]);
+
+  const toggleStorePanel = (rec: DbRec) => {
+    const id = rec.product.id;
+    if (storePanelProductId === id) {
+      setStorePanelProductId(null);
+      return;
+    }
+    setStorePanelProductId(id);
+    const z = storeZipInput.trim() || profile?.location?.trim() || "";
+    if (z) {
+      setStoreZipInput(z);
+      setStoreSubmittedZip(z);
+    } else {
+      setStoreSubmittedZip("");
+      setNearbyStores(null);
+      setStoresError(null);
+    }
+  };
+
+  const submitStoreZip = () => {
+    const z = storeZipInput.trim();
+    if (!z) {
+      setStoresError("Enter a ZIP or postal code");
+      setNearbyStores(null);
+      return;
+    }
+    setStoresError(null);
+    setStoreSubmittedZip(z);
+  };
+
+  const fetchDbProducts = async () => {
+    if (!profile) return;
+    setDbLoading(true);
+    setDbError(false);
+    try {
+      const res = await fetch("/api/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skinType:  profile.skinType,
+          concerns:  profile.concerns,
+          allergies: profile.allergies,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) { setDbError(true); return; }
+      setDbProducts(data.recommendations ?? []);
+    } catch {
+      setDbError(true);
+    } finally {
+      setDbLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!profile) {
@@ -48,13 +188,52 @@ export default function AnalyzePage() {
     if (!profile) return;
     setIsAnalyzing(true);
     try {
-      const result = await analyzeSkinProfile(profile);
-      setAnalysis(result);
-      setLocalAnalysis(result);
+      const [result, nutritionRes] = await Promise.all([
+        analyzeSkinProfile(profile),
+        fetch("/api/nutrition", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profile }),
+        }).catch(() => null),
+      ]);
+
+      let foodRecommendations: FoodRecommendations = MOCK_FOOD_RECOMMENDATIONS;
+      if (nutritionRes?.ok) {
+        try {
+          const raw = (await nutritionRes.json()) as FoodRecommendations & { error?: string };
+          if (
+            !raw.error &&
+            Array.isArray(raw.beneficial) &&
+            (raw.beneficial.length > 0 ||
+              (Array.isArray(raw.avoid) && raw.avoid.length > 0) ||
+              (Array.isArray(raw.supplements) && raw.supplements.length > 0))
+          ) {
+            foodRecommendations = {
+              beneficial: raw.beneficial ?? [],
+              avoid: raw.avoid ?? [],
+              supplements: raw.supplements ?? [],
+            };
+          }
+        } catch {
+          /* keep fallback */
+        }
+      }
+
+      const merged: SkinAnalysis = { ...result, foodRecommendations };
+      setAnalysis(merged);
+      setLocalAnalysis(merged);
     } finally {
       setIsAnalyzing(false);
     }
+    fetchDbProducts();
   };
+
+  // Fetch DB products when tab becomes active
+  useEffect(() => {
+    if (activeTab === "products" && dbProducts.length === 0 && !dbLoading) {
+      fetchDbProducts();
+    }
+  }, [activeTab]);
 
   if (!profile) return null;
 
@@ -190,6 +369,11 @@ export default function AnalyzePage() {
         {activeTab === "ingredients" && (
           <div className="space-y-4">
             <p className="text-sm text-stone-500">Ingredients ranked by priority for your skin concerns and type.</p>
+            {analysis.recommendedIngredients.length === 0 && (
+              <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-600">
+                No ingredient picks in this snapshot. Click <span className="font-medium text-stone-800">Re-analyze</span> above to refresh recommendations, or adjust your profile concerns and try again.
+              </div>
+            )}
             {analysis.recommendedIngredients.map((rec) => {
               const safety = safetyLabel(rec.ingredient.safetyRating);
               return (
@@ -258,77 +442,200 @@ export default function AnalyzePage() {
 
         {activeTab === "products" && (
           <div className="space-y-4">
-            <p className="text-sm text-stone-500">Products matched to your skin profile and concerns, ranked by compatibility.</p>
-            {analysis.recommendedProducts.map((rec) => (
-              <div key={rec.product.id} className="border border-stone-200 rounded-xl p-5 bg-white">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-brand-600">
+                Real products from Open Beauty Facts matched to your skin profile and concerns.
+              </p>
+              <button
+                onClick={fetchDbProducts}
+                className="text-xs text-brand-500 hover:text-brand-700 hover:underline"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {dbLoading && (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 size={22} className="animate-spin text-brand-400" />
+                <span className="ml-2 text-sm text-brand-500">Finding products for your profile…</span>
+              </div>
+            )}
+
+            {dbError && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700">
+                Could not load products — database may still be building.
+                Run <code className="bg-amber-100 px-1 rounded">python3 scripts/extract_products.py</code> to populate it.
+              </div>
+            )}
+
+            {!dbLoading && !dbError && dbProducts.length === 0 && (
+              <div className="text-center py-12 text-brand-400 text-sm">No matching products found. Try adjusting your profile concerns.</div>
+            )}
+
+            {!dbLoading && dbProducts.map((rec, idx) => (
+              <div key={rec.product.id} className="border border-brand-200 rounded-xl p-5 bg-white">
                 <div className="flex items-start gap-4">
-                  <div className="w-16 h-16 bg-stone-100 rounded-lg flex-shrink-0 overflow-hidden">
-                    <img
-                      src={rec.product.imageUrl}
-                      alt={rec.product.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23e7e5e4'/%3E%3C/svg%3E"; }}
-                    />
+                  {/* Icon */}
+                  <div className="w-16 h-16 bg-brand-100 rounded-lg flex-shrink-0 flex items-center justify-center">
+                    <span className="text-brand-300 text-sm font-bold">{rec.product.brand.slice(0,2).toUpperCase() || "??"}</span>
                   </div>
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="text-xs text-stone-400 font-medium uppercase tracking-wide">{rec.product.brand}</div>
-                        <div className="font-semibold text-stone-900">{rec.product.name}</div>
-                        <div className="text-xs text-stone-500 mt-0.5">{PRODUCT_CATEGORY_LABELS[rec.product.category]} · {rec.product.size}</div>
+                        <div className="text-xs text-brand-400 font-semibold uppercase tracking-wide">{rec.product.brand || "Unknown Brand"}</div>
+                        <div className="font-semibold text-brand-900">{rec.product.name}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs bg-brand-100 text-brand-600 px-2 py-0.5 rounded-full capitalize">
+                            {PRODUCT_CATEGORY_LABELS[rec.product.category] ?? rec.product.category}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className={cn("text-xs font-semibold", scoreToColor(rec.matchScore))}>{scoreToLabel(rec.matchScore)}</div>
-                        <div className="text-lg font-semibold text-stone-900">{formatCurrency(rec.product.price)}</div>
+                      <div className={cn("text-xs font-semibold flex-shrink-0", scoreToColor(rec.score))}>
+                        {scoreToLabel(rec.score)}
                       </div>
                     </div>
 
-                    {/* Key ingredients */}
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {rec.product.keyIngredients.map((ing) => (
-                        <span key={ing} className="text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">{ing.replace(/-/g, " ")}</span>
-                      ))}
-                    </div>
-
-                    {/* Rating */}
-                    <div className="mt-2 flex items-center gap-1.5 text-xs text-stone-500">
-                      <Star size={11} className="text-amber-400 fill-amber-400" />
-                      <span className="font-medium">{rec.product.rating}</span>
-                      <span>({rec.product.reviewCount.toLocaleString()} reviews)</span>
-                    </div>
-
-                    <p className="text-xs text-stone-500 mt-1.5 leading-relaxed">{rec.reason}</p>
-
-                    {/* Tags */}
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {rec.product.tags.map((tag) => (
-                        <span key={tag} className="text-xs text-stone-400 border border-stone-200 px-2 py-0.5 rounded-full">{tag}</span>
-                      ))}
-                    </div>
-
-                    {/* Purchase links */}
-                    <div className="mt-3 pt-3 border-t border-stone-100">
-                      <div className="flex items-center gap-1 mb-2">
-                        <MapPin size={11} className="text-stone-400" />
-                        <span className="text-xs text-stone-400">Available at</span>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {rec.product.purchaseLinks.map((link) => (
-                          <a
-                            key={link.retailer}
-                            href={link.url}
-                            className={cn(
-                              "text-xs px-2.5 py-1 rounded-md border font-medium transition-colors",
-                              link.inStock
-                                ? "border-stone-200 text-stone-700 hover:bg-stone-50"
-                                : "border-stone-100 text-stone-300 cursor-not-allowed"
-                            )}
-                          >
-                            {link.retailer}
-                            {!link.inStock && " (OOS)"}
-                          </a>
+                    {/* Matched ingredient tags */}
+                    {rec.product.ingredientList.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {rec.product.ingredientList.slice(0, 6).map((ing) => (
+                          <span key={ing} className="text-xs bg-brand-100 text-brand-600 px-2 py-0.5 rounded-full capitalize">{ing}</span>
                         ))}
                       </div>
+                    )}
+
+                    <p className="text-xs text-brand-500 mt-2 leading-relaxed">{rec.reason}</p>
+
+                    {/* Pros & Cons */}
+                    {(rec.pros.length > 0 || rec.cons.length > 0) && (
+                      <div className="mt-3 grid sm:grid-cols-2 gap-2">
+                        {rec.pros.length > 0 && (
+                          <div className="bg-green-50 border border-green-100 rounded-lg p-3">
+                            <div className="text-xs font-semibold text-green-800 mb-1.5 flex items-center gap-1">
+                              <Check size={11} /> Pros for your skin
+                            </div>
+                            <ul className="space-y-1">
+                              {rec.pros.map((pro, i) => (
+                                <li key={i} className="text-xs text-green-700 flex items-start gap-1.5">
+                                  <span className="text-green-400 mt-0.5 flex-shrink-0">+</span>{pro}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {rec.cons.length > 0 && (
+                          <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
+                            <div className="text-xs font-semibold text-amber-800 mb-1.5 flex items-center gap-1">
+                              <AlertTriangle size={11} /> Watch out for
+                            </div>
+                            <ul className="space-y-1">
+                              {rec.cons.map((con, i) => (
+                                <li key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
+                                  <span className="text-amber-400 mt-0.5 flex-shrink-0">−</span>{con}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Ingredient preview */}
+                    {rec.product.ingredientList.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-brand-100">
+                        <div className="text-xs font-semibold text-brand-600 mb-1">Ingredients</div>
+                        <p className="text-xs text-brand-500 leading-relaxed line-clamp-3 capitalize">
+                          {rec.product.ingredientList.join(", ")}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="mt-3 pt-3 border-t border-brand-100">
+                      <div className="flex items-center gap-2">
+                        <MapPin size={11} className="text-brand-400 shrink-0" />
+                        <button
+                          type="button"
+                          onClick={() => toggleStorePanel(rec)}
+                          className="text-xs text-brand-500 hover:text-brand-700 hover:underline text-left"
+                        >
+                          {storePanelProductId === rec.product.id
+                            ? "Hide nearby stores"
+                            : "Find this product near you →"}
+                        </button>
+                      </div>
+
+                      {storePanelProductId === rec.product.id && (
+                        <div className="mt-3 rounded-lg border border-brand-200 bg-brand-50/90 p-3 space-y-3">
+                          <div className="flex flex-wrap items-end gap-2">
+                            <div className="flex flex-col gap-0.5">
+                              <label className="text-[10px] font-semibold uppercase tracking-wide text-brand-600">
+                                ZIP / postal code
+                              </label>
+                              <input
+                                value={storeZipInput}
+                                onChange={(e) => setStoreZipInput(e.target.value)}
+                                placeholder="e.g. 90210"
+                                maxLength={10}
+                                className="w-36 text-sm border border-brand-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={submitStoreZip}
+                              className="bg-brand-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-brand-600 transition-colors"
+                            >
+                              Find stores
+                            </button>
+                          </div>
+
+                          {storesLoading && (
+                            <div className="flex items-center gap-2 text-xs text-brand-500 py-1">
+                              <Loader2 size={14} className="animate-spin" /> Finding stores…
+                            </div>
+                          )}
+                          {storesError && (
+                            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                              {storesError}
+                            </p>
+                          )}
+                          {!storesLoading && !storesError && nearbyStores && nearbyStores.length === 0 && (
+                            <p className="text-xs text-brand-500">No stores found — try another ZIP.</p>
+                          )}
+                          {!storesLoading && nearbyStores && nearbyStores.length > 0 && (
+                            <div className="space-y-1.5">
+                              <div className="text-xs font-semibold text-brand-800">
+                                Near {storeSubmittedZip} · {rec.product.brand || "Skincare"}
+                              </div>
+                              {nearbyStores.slice(0, 6).map((store) => (
+                                <div
+                                  key={store.placeId}
+                                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 bg-white rounded-lg border border-brand-100 px-2.5 py-1.5"
+                                >
+                                  <div className="text-xs min-w-0">
+                                    <span className="font-medium text-brand-900">{store.name}</span>
+                                    <span className="text-brand-400"> · {store.distanceMiles} mi</span>
+                                    {store.address && (
+                                      <div className="text-brand-500 font-normal truncate">{store.address}</div>
+                                    )}
+                                  </div>
+                                  <a
+                                    href={store.mapsUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-brand-600 font-medium hover:underline shrink-0"
+                                  >
+                                    Maps →
+                                  </a>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <p className="text-[10px] text-brand-400 leading-relaxed">
+                            Inventory isn&apos;t verified — call ahead to confirm this product.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
