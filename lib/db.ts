@@ -1,3 +1,4 @@
+import fs from "fs";
 import Database from "better-sqlite3";
 import path from "path";
 
@@ -6,10 +7,16 @@ const DB_PATH = path.join(process.cwd(), "data", "skincare.db");
 let _db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
-  if (!_db) {
-    _db = new Database(DB_PATH, { readonly: true });
-    _db.pragma("journal_mode = WAL");
+  if (_db) return _db;
+
+  if (!fs.existsSync(DB_PATH)) {
+    throw new Error(
+      `Missing ${DB_PATH}. Run: python3 scripts/build_skincare_db.py`
+    );
   }
+
+  // Read-only: avoid WAL pragma (can cause flaky opens on some serverless / shared FS).
+  _db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
   return _db;
 }
 

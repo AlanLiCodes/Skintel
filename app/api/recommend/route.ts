@@ -130,6 +130,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ recommendations: results });
   } catch (err) {
     console.error("Recommend error:", err);
-    return NextResponse.json({ error: "Database not ready." }, { status: 503 });
+    const message =
+      err instanceof Error ? err.message : "Database not ready.";
+    return NextResponse.json(
+      { error: message.includes("Missing") ? message : "Database not ready." },
+      { status: 503 }
+    );
   }
 }

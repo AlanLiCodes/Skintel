@@ -153,20 +153,49 @@ export default function AnalyzePage() {
     if (!profile) return;
     setDbLoading(true);
     setDbError(false);
+    const body = JSON.stringify({
+      skinType: profile.skinType,
+      concerns: profile.concerns,
+      allergies: profile.allergies,
+    });
+
     try {
-      const res = await fetch("/api/recommend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          skinType:  profile.skinType,
-          concerns:  profile.concerns,
-          allergies: profile.allergies,
-        }),
-      });
-      const data = await res.json();
-      if (data.error) { setDbError(true); return; }
-      setDbProducts(data.recommendations ?? []);
-    } catch {
+      const maxAttempts = 4;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const res = await fetch("/api/recommend", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+          });
+          const data = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            recommendations?: DbRec[];
+          };
+
+          if (!res.ok && res.status === 503 && attempt < maxAttempts - 1) {
+            await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+            continue;
+          }
+          if (data.error) {
+            setDbError(true);
+            return;
+          }
+          if (!res.ok) {
+            setDbError(true);
+            return;
+          }
+          setDbProducts(data.recommendations ?? []);
+          return;
+        } catch {
+          if (attempt < maxAttempts - 1) {
+            await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+            continue;
+          }
+          setDbError(true);
+          return;
+        }
+      }
       setDbError(true);
     } finally {
       setDbLoading(false);
@@ -463,8 +492,10 @@ export default function AnalyzePage() {
 
             {dbError && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700">
-                Could not load products — database may still be building.
-                Run <code className="bg-amber-100 px-1 rounded">python3 scripts/extract_products.py</code> to populate it.
+                Could not load products — the SQLite file may be missing or the server was busy.
+                Locally, run{" "}
+                <code className="bg-amber-100 px-1 rounded">python3 scripts/build_skincare_db.py</code>
+                {" "}then use Refresh. On Vercel, ensure <code className="bg-amber-100 px-1 rounded">data/skincare.db</code> is built in CI or switch to a hosted database.
               </div>
             )}
 
