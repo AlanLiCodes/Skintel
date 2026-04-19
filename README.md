@@ -4,14 +4,11 @@ Skintel is a full-stack Next.js application that helps users build a personalize
 
 ## Features
 
-- **Skin Profile Builder** — 5-step onboarding: age range, skin type, concerns, current products, allergies
-- **AI Analysis** — Matches your profile to recommended ingredients, products, and a full AM/PM routine
-- **Ingredient Library** — Deep breakdowns with concentration ranges, interactions, functions, and pH requirements
-- **Product Finder** — Search by concern, see key ingredients, purchase links, and store availability by ZIP code
-- **AI Chat** — Conversational skincare advisor powered by GPT-4o-mini (requires OpenAI API key)
-- **Nutrition Guide** — Foods to eat/avoid and supplements for your skin concerns
-- **Skin Image Scan** — Upload a photo for AI-powered visible concern detection (beta)
-- **Prescription Import** — Type in your derm's notes to factor them into your analysis
+- **Skin Profile Builder** — Onboarding: age range, skin type, concerns, current products, allergies, optional derm notes
+- **AI Analysis** — Recommended ingredients (rule-based from the library), mock catalog products, AM/PM routine, and **nutrition** suggestions via OpenAI when configured
+- **Ingredient Library** — Breakdowns with concentration ranges, interactions, functions, and pH where applicable
+- **Product Finder** — Search products from a local SQLite DB built from [LauraAddams Skincare API](https://github.com/LauraAddams/skincareAPI)-style CSV seeds; optional **nearby retailers** by ZIP (Google Places + Geocoding)
+- **AI Chat** — GPT-4o-mini advisor (requires `OPENAI_API_KEY`)
 
 ## Setup
 
@@ -22,23 +19,34 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
-## AI Chat (Optional)
+## Product database (SQLite)
 
-To enable the full AI chat feature, add your OpenAI API key:
+`data/skincare.db` is **not** in the repo (it is gitignored). After cloning, generate it once:
 
 ```bash
-cp .env.local.example .env.local
-# Then edit .env.local and add your key
+python3 scripts/build_skincare_db.py
 ```
 
-Without the key, the app runs in demo mode — all analysis, recommendations, and ingredient data are fully functional without an API key.
+This reads CSV files from `scripts/seed_data/` and writes `data/skincare.db`. Use **Python 3** (stdlib only: `csv`, `sqlite3`). Then start or restart `npm run dev` so the API routes pick up the database.
+
+## Environment variables (optional)
+
+Create `.env.local` in the project root (never commit real keys):
+
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_API_KEY` | AI **chat** (`/api/chat`) and **nutrition** section on Analyze (`/api/nutrition`) |
+| `GOOGLE_PLACES_API_KEY` | **Nearby stores** on the Products page and Analyze (`/api/stores`; enable Geocoding API + Places API in Google Cloud) |
+
+**Without `OPENAI_API_KEY`:** chat shows a demo message; nutrition on Analyze falls back to built-in placeholder lists. **Without `GOOGLE_PLACES_API_KEY`:** store lookup returns an error until a key is set.
 
 ## Stack
 
 - **Next.js 14** (App Router)
 - **TypeScript**
 - **Tailwind CSS**
-- **Zustand** (state management + localStorage persistence)
-- **OpenAI API** (chat feature)
-- **react-dropzone** (image upload)
-- **lucide-react** (icons)
+- **Zustand** (state + `localStorage` persistence)
+- **better-sqlite3** (read-only access to `data/skincare.db`)
+- **OpenAI API** (chat + nutrition JSON)
+- **Google Maps Platform** (Geocoding + Places for store search)
+- **react-dropzone** / **lucide-react**
